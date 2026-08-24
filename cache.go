@@ -13,7 +13,7 @@ import (
 // godocs rebuilds stale indexes instead of misreading them.
 const indexFormat = "v1"
 
-var errNoGo = errors.New("go not found; install Go or set GODOCS_GO")
+var errNoGo = errors.New("no working Go toolchain found; install Go, or point GODOCS_GO at the go binary")
 
 func cacheDir() string {
 	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {

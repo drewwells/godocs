@@ -107,19 +107,48 @@ function pkgsiteURL(entry: Entry): string {
   return `https://pkg.go.dev/${entry.pkg}${entry.anchor ? `#${entry.anchor}` : ""}`;
 }
 
+/**
+ * Renders what godocs actually said when it failed.
+ *
+ * A toast would truncate it, and the useful part is usually at the end — the
+ * toolchain complaining, say. Showing it in the pane keeps the diagnosis where
+ * the problem appeared.
+ */
+function formatExecError(error: unknown): string {
+  const details = error as { stderr?: string; message?: string };
+  const stderr = details.stderr?.trim();
+  const body = stderr || details.message?.trim() || String(error);
+  return [
+    "## Could not render documentation",
+    "",
+    "```",
+    body,
+    "```",
+    "",
+    "If this mentions a version manager, godocs picked up a shim that does not",
+    "resolve from Raycast's working directory. Clearing its cache makes it",
+    "search again:",
+    "",
+    "```sh",
+    "rm ~/.cache/godocs/go-path",
+    "```",
+  ].join("\n");
+}
+
 /** Fetches the rendered Markdown for one entry, for the preview pane. */
 function useDocumentation(binary: string | undefined, entry: Entry | undefined) {
-  const { data, isLoading } = useExec(
+  const { data, error, isLoading } = useExec(
     binary ?? "",
     ["render", entry?.pkg ?? "", entry?.anchor ?? "", "--format", "md"],
     {
       ...EXEC_OPTIONS,
       execute: binary !== undefined && entry !== undefined,
       keepPreviousData: false,
+      // The error is shown in the pane instead, in full.
       failureToastOptions: { title: "Could not render documentation" },
     },
   );
-  return { markdown: data, isLoading };
+  return { markdown: error ? formatExecError(error) : data, isLoading };
 }
 
 export default function SearchGoDocs(props: LaunchProps<{ arguments: { query?: string } }>) {

@@ -4,14 +4,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
 
 // Locating the Go toolchain is not as simple as exec.LookPath. Raycast, launchd
-// and editor subprocesses start with a bare PATH, and version managers like
-// mise activate from ~/.zshrc, which a login shell does not read. So probe the
-// cheap sources in order and remember the answer on disk.
+// and editor subprocesses start with a bare PATH and an unrelated working
+// directory, and version managers install shims that only resolve where their
+// config applies. So gather candidates, and prove each one works before
+// trusting it.
 
 var (
 	goOnce sync.Once
@@ -26,59 +28,141 @@ func goBinary() (string, error) {
 	return goPath, goErr
 }
 
-func findGo() (string, error) {
-	if p := os.Getenv("GODOCS_GO"); p != "" {
-		return p, nil
+// goWorks reports whether a candidate is a usable toolchain.
+//
+// The probe deliberately runs in a neutral directory. A version-manager shim
+// resolves against the config it finds by walking up from the working
+// directory, so one can work in your home directory and fail from "/" — and
+// the answer we cache has to work everywhere, because Raycast and launchd run
+// from somewhere else entirely.
+func goWorks(path string) bool {
+	if !isExecutable(path) {
+		return false
 	}
-	if p, err := exec.LookPath("go"); err == nil {
-		return p, nil
-	}
+	cmd := exec.Command(path, "env", "GOVERSION")
+	cmd.Dir = os.TempDir()
+	out, err := cmd.Output()
+	return err == nil && strings.HasPrefix(strings.TrimSpace(string(out)), "go")
+}
 
-	home, _ := os.UserHomeDir()
+func findGo() (string, error) {
 	cache := filepath.Join(cacheDir(), "go-path")
 
-	// A version manager knows better than any hardcoded path.
-	if mise := filepath.Join(home, ".local", "bin", "mise"); isExecutable(mise) {
-		if out, err := exec.Command(mise, "which", "go").Output(); err == nil {
-			if p := strings.TrimSpace(string(out)); isExecutable(p) {
-				rememberGo(cache, p)
-				return p, nil
-			}
+	// An explicit override is the user's business; report it plainly if broken
+	// rather than silently using something else.
+	if p := os.Getenv("GODOCS_GO"); p != "" {
+		if goWorks(p) {
+			return p, nil
 		}
+		return "", errNoGo
 	}
 
+	// A previously validated path is an absolute one, so it costs nothing to
+	// re-check that it is still there.
 	if data, err := os.ReadFile(cache); err == nil {
 		if p := strings.TrimSpace(string(data)); isExecutable(p) {
 			return p, nil
 		}
 	}
 
-	for _, p := range []string{
-		"/opt/homebrew/bin/go",
-		"/usr/local/go/bin/go",
-		"/usr/local/bin/go",
-		filepath.Join(home, "go", "bin", "go"),
-	} {
-		if isExecutable(p) {
-			rememberGo(cache, p)
-			return p, nil
+	for _, candidate := range goCandidates() {
+		if goWorks(candidate) {
+			rememberGo(cache, candidate)
+			return candidate, nil
+		}
+	}
+	return "", errNoGo
+}
+
+// goCandidates lists places a Go toolchain might be, cheapest first. Shims come
+// before concrete installs because they are usually right; goWorks is what
+// catches the case where they are not.
+func goCandidates() []string {
+	var candidates []string
+	add := func(paths ...string) {
+		for _, p := range paths {
+			if p != "" {
+				candidates = append(candidates, p)
+			}
 		}
 	}
 
-	// Last resort: an interactive shell, which does source ~/.zshrc.
+	if p, err := exec.LookPath("go"); err == nil {
+		add(p)
+	}
+
+	home, _ := os.UserHomeDir()
+	mise := filepath.Join(home, ".local", "bin", "mise")
+	if isExecutable(mise) {
+		if out, err := exec.Command(mise, "which", "go").Output(); err == nil {
+			add(strings.TrimSpace(string(out)))
+		}
+	}
+
+	// Version managers keep concrete installs alongside their shims. These
+	// paths carry no config dependency, so they work from any directory.
+	add(versionManagerInstalls(home)...)
+
+	add(
+		"/opt/homebrew/bin/go",
+		"/opt/homebrew/opt/go/bin/go",
+		"/usr/local/go/bin/go",
+		"/usr/local/bin/go",
+		filepath.Join(home, "go", "bin", "go"),
+	)
+
+	// Last resort: an interactive shell, which sources the rc file where tools
+	// like mise are usually activated.
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/zsh"
 	}
 	if out, err := exec.Command(shell, "-ic", "command -v go").Output(); err == nil {
-		lines := strings.Fields(strings.TrimSpace(string(out)))
-		if n := len(lines); n > 0 && isExecutable(lines[n-1]) {
-			rememberGo(cache, lines[n-1])
-			return lines[n-1], nil
+		fields := strings.Fields(strings.TrimSpace(string(out)))
+		if n := len(fields); n > 0 {
+			add(fields[n-1])
 		}
 	}
 
-	return "", errNoGo
+	return candidates
+}
+
+// versionManagerInstalls finds concrete toolchains under mise and asdf,
+// newest-looking first.
+func versionManagerInstalls(home string) []string {
+	patterns := []string{
+		filepath.Join(home, ".local", "share", "mise", "installs", "go", "*", "bin", "go"),
+		filepath.Join(home, ".asdf", "installs", "golang", "*", "go", "bin", "go"),
+	}
+
+	var found []string
+	for _, pattern := range patterns {
+		matches, _ := filepath.Glob(pattern)
+		// Prefer fully specified versions (1.26.4) over the aliases that sit
+		// beside them (1.26, 1, latest): the aliases move, and a cached path
+		// should stay valid until the toolchain it names is actually removed.
+		sort.Slice(matches, func(i, j int) bool {
+			si, sj := specificity(matches[i]), specificity(matches[j])
+			if si != sj {
+				return si > sj
+			}
+			return matches[i] > matches[j]
+		})
+		found = append(found, matches...)
+	}
+	return found
+}
+
+// specificity counts the dots in the version component of an install path, so
+// that "1.26.4" outranks "1.26", which outranks "1" and "latest".
+func specificity(path string) int {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i, part := range parts {
+		if (part == "go" || part == "golang") && i+1 < len(parts) {
+			return strings.Count(parts[i+1], ".")
+		}
+	}
+	return 0
 }
 
 func rememberGo(path, value string) {
