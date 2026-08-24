@@ -25,8 +25,9 @@ previews the selected symbol; `enter` opens it as a Markdown buffer.*
 GOBIN="$HOME/.local/bin" go install github.com/drewwells/godocs@latest
 ```
 
-`fzf` is needed for the interactive picker, and `tmux` for the editor popups.
-Neither is required for `godocs doc`, `search` or `url`.
+`fzf` is needed for the interactive picker, and `tmux` to show that picker from
+inside an editor. Neither is required for `godocs doc`, `search`, `url`, or
+looking a symbol up from your editor — see [Editors](#editors).
 
 > **On GOBIN.** If you manage Go with a version manager, the default `GOBIN` may
 > live inside the toolchain directory itself — which is replaced on every Go
@@ -101,9 +102,8 @@ with that text, rather than rendering a list of near misses you cannot act on.
 - Helix **25.07 or newer** — `%{...}` and `%sh{...}` expansions were introduced
   in [25.07](https://helix-editor.com/news/release-25-07-highlights/) and these
   bindings do not work without them. Check with `hx --version`.
-- `tmux`, for the picker popup. Without it the direct lookup still works, but
-  anything that would fall back to the picker quietly does nothing.
-- `fzf`, for the picker itself.
+- `fzf` and `tmux`, **only** for the in-editor picker. Everything else works
+  without them — see "Without tmux" below.
 - `godocs` on the `PATH` **Helix itself sees** — see troubleshooting below.
 
 **Configuration**
@@ -145,6 +145,31 @@ cancel the picker. Without it, `:open` is handed an empty path and complains.
 The long-word motions on `+D` deliberately grab the whole token —
 `http.Client.Do(req)` — and `godocs` trims the call syntax off before resolving.
 A sloppy grab is not a dead end: it just becomes the picker's starting query.
+
+**Without tmux**
+
+`+D` — looking up the word under the cursor — works exactly the same: it
+resolves the symbol and opens its documentation, no picker involved.
+
+What changes is the fallback. The picker runs inside a tmux popup so it has a
+terminal of its own; outside tmux there is nowhere safe to draw, because fzf
+opens `/dev/tty` directly and would paint straight over the editor that called
+it. So godocs does not run it. Instead you get a buffer listing the matches:
+
+```markdown
+# godocs: "resp"
+
+Put the cursor on a name below and press the lookup key (`+D` by default) to
+open its documentation.
+
+- `http.Response` — type Response struct
+  Response represents the response from an HTTP request.
+- `http.ResponseWriter` — type ResponseWriter interface
+  ...
+```
+
+That list is not a dead end — `+D` works in any buffer, including this one, so
+each name is one keystroke from its docs.
 
 **Troubleshooting**
 
