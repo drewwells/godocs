@@ -121,6 +121,30 @@ npm install
 npx ray develop      # registers it with Raycast
 ```
 
+### How it finds the binary
+
+1. the **godocs Path** preference, if you set one
+2. `godocs` on PATH — where `go install` puts it
+3. otherwise it downloads the pinned release from GitHub, once
+
+The download is verified against a SHA-256 recorded in
+[`raycast/src/release.ts`](raycast/src/release.ts) — in reviewable source, not
+fetched alongside the binary, because a checksum served from the same place as
+the download proves nothing. Bytes are verified *before* being decompressed or
+written anywhere executable, and a mismatch leaves nothing on disk. The
+extension never compiles anything on your machine.
+
+Releases are built by [a GitHub Actions workflow](.github/workflows/release.yml)
+that publishes build provenance attestations, so a published binary can be
+traced back to the commit and workflow that produced it:
+
+```sh
+gh attestation verify godocs_<version>_darwin_arm64.gz --repo drewwells/godocs
+```
+
+`npm test` exercises that whole path — install, tamper-rejection, preference
+precedence — against locally built artifacts.
+
 Set an alias of `go` on the **Search Go Docs** command to look things up by
 typing `go {term}`.
 

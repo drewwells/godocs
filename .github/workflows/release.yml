@@ -1,0 +1,75 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and release
+        required: true
+
+permissions:
+  contents: write
+  # Build provenance lets anyone verify that a published binary really came from
+  # this workflow and this commit, which is what makes downloading it at runtime
+  # defensible.
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Resolve version
+        id: version
+        run: echo "version=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # CGO stays off so every target cross-compiles reproducibly from here.
+          export CGO_ENABLED=0
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            os=${target%/*}
+            arch=${target#*/}
+            name="godocs_${VERSION}_${os}_${arch}"
+            GOOS=$os GOARCH=$arch go build \
+              -trimpath \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "dist/godocs" .
+            gzip -9 -c dist/godocs > "dist/${name}.gz"
+            rm dist/godocs
+          done
+          cd dist && sha256sum ./*.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.gz
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            dist/*.gz dist/checksums.txt
+
+      - name: Checksums for the Raycast extension
+        run: |
+          echo "Pin these in raycast/src/release.ts (npm run sync-release):"
+          grep darwin dist/checksums.txt

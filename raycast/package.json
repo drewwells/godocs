@@ -5,7 +5,10 @@
   "description": "Offline fuzzy search over Go standard library and module documentation. Requires the godocs CLI.",
   "icon": "command-icon.png",
   "author": "drewwells",
-  "categories": ["Documentation", "Developer Tools"],
+  "categories": [
+    "Documentation",
+    "Developer Tools"
+  ],
   "license": "MIT",
   "commands": [
     {
@@ -48,9 +51,18 @@
       "description": "What pressing Enter on a result does.",
       "default": "pkgsite",
       "data": [
-        { "title": "Open on pkg.go.dev", "value": "pkgsite" },
-        { "title": "Show Full Documentation", "value": "detail" },
-        { "title": "Copy Import Path", "value": "copy" }
+        {
+          "title": "Open on pkg.go.dev",
+          "value": "pkgsite"
+        },
+        {
+          "title": "Show Full Documentation",
+          "value": "detail"
+        },
+        {
+          "title": "Copy Import Path",
+          "value": "copy"
+        }
       ]
     },
     {
@@ -80,6 +92,8 @@
     "dev": "ray develop",
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
-    "publish": "npx @raycast/api@latest publish"
+    "publish": "npx @raycast/api@latest publish",
+    "sync-release": "node scripts/sync-release.mjs",
+    "test": "node scripts/test-download.mjs"
   }
 }

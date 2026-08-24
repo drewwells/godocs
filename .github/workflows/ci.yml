@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+
+  extension:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: raycast
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: raycast/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # Build the release artifacts the same way release.yml does, then run the
+      # download-and-verify path against them. On Linux the darwin binary cannot
+      # be executed, so that one assertion is skipped; everything else — the
+      # checksum check, the rejection path, the install — still runs.
+      - name: Build artifacts to verify against
+        working-directory: .
+        env:
+          VERSION: v0.0.0-ci
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          export CGO_ENABLED=0
+          for arch in arm64 amd64; do
+            GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "-s -w" -o dist/godocs .
+            gzip -9 -c dist/godocs > "dist/godocs_${VERSION}_darwin_${arch}.gz"
+            rm dist/godocs
+          done
+          cd dist && sha256sum ./*.gz | sed 's|  \./|  |' > checksums.txt
+
+      - run: npm test -- ../dist v0.0.0-ci

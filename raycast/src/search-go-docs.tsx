@@ -1,7 +1,4 @@
-import { useMemo, useState } from "react";
-import { accessSync, constants } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { useEffect, useMemo, useState } from "react";
 import {
   Action,
   ActionPanel,
@@ -16,6 +13,7 @@ import {
   showToast,
 } from "@raycast/api";
 import { useExec } from "@raycast/utils";
+import { EXEC_ENV, ensureGodocs } from "./godocs";
 
 type Preferences = {
   godocsPath?: string;
@@ -49,44 +47,41 @@ const KIND_ICON: Record<string, Icon> = {
 
 const prefs = getPreferenceValues<Preferences>();
 
-function expandHome(p: string): string {
-  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
-}
-
-// Raycast starts processes with a minimal PATH, so put the usual install
-// locations on it before looking for anything.
-const SEARCH_PATH = [
-  join(homedir(), ".local", "bin"),
-  join(homedir(), "go", "bin"),
-  "/opt/homebrew/bin",
-  "/usr/local/bin",
-  join(homedir(), ".local", "share", "mise", "shims"),
-  process.env.PATH ?? "/usr/bin:/bin",
-].join(":");
-
-const EXEC_ENV = { ...process.env, PATH: SEARCH_PATH };
-
-/** Locates the godocs binary: an explicit preference, then PATH. */
-function findGodocs(): string {
-  const configured = prefs.godocsPath?.trim();
-  if (configured) return expandHome(configured);
-
-  for (const dir of SEARCH_PATH.split(":")) {
-    const candidate = join(dir, "godocs");
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Not here; keep looking.
-    }
-  }
-  // Fall back to the bare name so the failure toast names the real problem.
-  return "godocs";
-}
-
-const GODOCS = findGodocs();
-
 const EXEC_OPTIONS = { cwd: prefs.projectDir || undefined, env: EXEC_ENV };
+
+/** Resolves the godocs binary once, downloading it if this machine lacks one. */
+function useGodocsBinary() {
+  const [path, setPath] = useState<string | undefined>(undefined);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [status, setStatus] = useState<string | undefined>("Looking for godocs");
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(undefined);
+    setStatus("Looking for godocs");
+
+    ensureGodocs(prefs.godocsPath, (message) => {
+      if (!cancelled) setStatus(message);
+    })
+      .then((resolved) => {
+        if (cancelled) return;
+        setPath(resolved);
+        setStatus(undefined);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setStatus(undefined);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  return { path, error, status, retry: () => setAttempt((n) => n + 1) };
+}
 
 function parseRows(stdout: string): Entry[] {
   const entries: Entry[] = [];
@@ -113,13 +108,17 @@ function pkgsiteURL(entry: Entry): string {
 }
 
 /** Fetches the rendered Markdown for one entry, for the preview pane. */
-function useDocumentation(entry: Entry | undefined) {
-  const { data, isLoading } = useExec(GODOCS, ["render", entry?.pkg ?? "", entry?.anchor ?? "", "--format", "md"], {
-    ...EXEC_OPTIONS,
-    execute: entry !== undefined,
-    keepPreviousData: false,
-    failureToastOptions: { title: "Could not render documentation" },
-  });
+function useDocumentation(binary: string | undefined, entry: Entry | undefined) {
+  const { data, isLoading } = useExec(
+    binary ?? "",
+    ["render", entry?.pkg ?? "", entry?.anchor ?? "", "--format", "md"],
+    {
+      ...EXEC_OPTIONS,
+      execute: binary !== undefined && entry !== undefined,
+      keepPreviousData: false,
+      failureToastOptions: { title: "Could not render documentation" },
+    },
+  );
   return { markdown: data, isLoading };
 }
 
@@ -127,25 +126,59 @@ export default function SearchGoDocs(props: LaunchProps<{ arguments: { query?: s
   const [searchText, setSearchText] = useState(props.arguments?.query ?? "");
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [showDetail, setShowDetail] = useState(prefs.showDetail !== false);
+  const godocs = useGodocsBinary();
 
   const {
     data: entries,
-    isLoading,
+    isLoading: isSearching,
     revalidate,
-  } = useExec(GODOCS, ["search", "--limit", RESULT_LIMIT, searchText], {
+  } = useExec(godocs.path ?? "", ["search", "--limit", RESULT_LIMIT, searchText], {
     ...EXEC_OPTIONS,
+    execute: godocs.path !== undefined,
     keepPreviousData: true,
     parseOutput: ({ stdout }) => parseRows(stdout as string),
-    failureToastOptions: {
-      title: "godocs failed",
-      message:
-        "Install it with: GOBIN=$HOME/.local/bin go install github.com/drewwells/godocs@latest",
-    },
+    failureToastOptions: { title: "godocs failed" },
   });
 
   const results = useMemo(() => entries ?? [], [entries]);
   const selected = useMemo(() => results.find((e) => e.id === selectedId) ?? results[0], [results, selectedId]);
-  const { markdown, isLoading: isRendering } = useDocumentation(showDetail ? selected : undefined);
+  const { markdown, isLoading: isRendering } = useDocumentation(godocs.path, showDetail ? selected : undefined);
+  const isLoading = godocs.status !== undefined || isSearching;
+
+  // Nothing works without the binary, so say so plainly instead of showing an
+  // empty result list.
+  if (godocs.error) {
+    return (
+      <List>
+        <List.EmptyView
+          icon={Icon.Warning}
+          title="godocs is not available"
+          description={godocs.error}
+          actions={
+            <ActionPanel>
+              <Action title="Try Again" icon={Icon.ArrowClockwise} onAction={godocs.retry} />
+              <Action.CopyToClipboard
+                title="Copy Install Command"
+                content='GOBIN="$HOME/.local/bin" go install github.com/drewwells/godocs@latest'
+              />
+              <Action.OpenInBrowser title="Open Godocs on GitHub" url="https://github.com/drewwells/godocs" />
+            </ActionPanel>
+          }
+        />
+      </List>
+    );
+  }
+
+  if (godocs.path === undefined) {
+    return (
+      <List isLoading>
+        <List.EmptyView icon={Icon.Download} title={godocs.status ?? "Preparing godocs"} />
+      </List>
+    );
+  }
+
+  // Hoisted so the narrowing survives into the map callback below.
+  const binary = godocs.path;
 
   return (
     <List
@@ -182,6 +215,7 @@ export default function SearchGoDocs(props: LaunchProps<{ arguments: { query?: s
             }
             actions={
               <Actions
+                binary={binary}
                 entry={entry}
                 showDetail={showDetail}
                 onToggleDetail={() => setShowDetail((v) => !v)}
@@ -195,12 +229,23 @@ export default function SearchGoDocs(props: LaunchProps<{ arguments: { query?: s
   );
 }
 
-function Actions(props: { entry: Entry; showDetail: boolean; onToggleDetail: () => void; onReindex: () => void }) {
-  const { entry, showDetail, onToggleDetail, onReindex } = props;
+function Actions(props: {
+  binary: string;
+  entry: Entry;
+  showDetail: boolean;
+  onToggleDetail: () => void;
+  onReindex: () => void;
+}) {
+  const { binary, entry, showDetail, onToggleDetail, onReindex } = props;
 
   const openOnPkgsite = <Action.OpenInBrowser key="open" title="Open on Pkg.go.dev" url={pkgsiteURL(entry)} />;
   const showFullDocs = (
-    <Action.Push key="docs" icon={Icon.Book} title="Show Full Documentation" target={<Documentation entry={entry} />} />
+    <Action.Push
+      key="docs"
+      icon={Icon.Book}
+      title="Show Full Documentation"
+      target={<Documentation binary={binary} entry={entry} />}
+    />
   );
   const copyImportPath = (
     <Action.CopyToClipboard key="copy" title="Copy Import Path" content={entry.pkg} icon={Icon.Clipboard} />
@@ -251,7 +296,7 @@ function Actions(props: { entry: Entry; showDetail: boolean; onToggleDetail: () 
           onAction={async () => {
             const toast = await showToast({ style: Toast.Style.Animated, title: "Rebuilding index…" });
             try {
-              await rebuildIndex();
+              await rebuildIndex(binary);
               toast.style = Toast.Style.Success;
               toast.title = "Index rebuilt";
               onReindex();
@@ -268,8 +313,8 @@ function Actions(props: { entry: Entry; showDetail: boolean; onToggleDetail: () 
 }
 
 /** Full-window documentation, for symbols whose docs outgrow the preview pane. */
-function Documentation({ entry }: { entry: Entry }) {
-  const { markdown, isLoading } = useDocumentation(entry);
+function Documentation({ binary, entry }: { binary: string; entry: Entry }) {
+  const { markdown, isLoading } = useDocumentation(binary, entry);
   return (
     <Detail
       isLoading={isLoading}
@@ -286,8 +331,8 @@ function Documentation({ entry }: { entry: Entry }) {
   );
 }
 
-async function rebuildIndex(): Promise<void> {
+async function rebuildIndex(binary: string): Promise<void> {
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
-  await promisify(execFile)(GODOCS, ["index", "--force"], EXEC_OPTIONS);
+  await promisify(execFile)(binary, ["index", "--force"], EXEC_OPTIONS);
 }

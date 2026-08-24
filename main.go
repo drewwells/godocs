@@ -31,6 +31,7 @@ Usage:
   godocs index [--force]         Build or refresh the standard library index
   godocs deps [--force]          Index the current module's dependencies
   godocs where                   Print cache paths
+  godocs version                 Print the version
 
 Search options:
   --limit N       Cap results (default 50)
@@ -51,6 +52,9 @@ Environment:
   GODOCS_PICK_OUT   File for the picker to write its choice to, instead of
                     rendering it
 `
+
+// version is set by the release workflow via -ldflags -X.
+var version = "dev"
 
 // options are the flags shared across subcommands.
 type options struct {
@@ -78,7 +82,7 @@ var commands = map[string]bool{
 	"pick": true, "search": true, "doc": true, "show": true, "render": true,
 	"buffer": true, "popup": true, "url": true, "open": true, "open-url": true,
 	"resolve": true, "clean": true, "index": true, "deps": true, "where": true,
-	"_rows": true, "help": true,
+	"_rows": true, "help": true, "version": true,
 }
 
 func run(argv []string) error {
@@ -221,6 +225,10 @@ func run(argv []string) error {
 			return err
 		}
 		fmt.Println(p)
+		return nil
+
+	case "version":
+		fmt.Println(version)
 		return nil
 
 	case "where":
