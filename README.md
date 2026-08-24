@@ -79,18 +79,35 @@ The index refreshes itself when `go.mod` changes.
 
 ## Editors
 
-`godocs buffer` renders documentation to a file and prints its path, for
-editors that can open the output of a synchronous command. Given text it cannot
-resolve to exactly one symbol, it opens the picker seeded with that text rather
-than rendering a list of near misses you cannot act on.
+`godocs buffer` renders documentation to a Markdown file and prints its path,
+for editors that can open the output of a synchronous command. Reading docs in a
+real buffer beats a pager: search, yank and buffer history all behave normally.
+
+Given text it cannot resolve to exactly one symbol, it opens the picker seeded
+with that text, rather than rendering a list of near misses you cannot act on.
 
 ### Helix
+
+**Requirements**
+
+- Helix **25.07 or newer** — `%{...}` and `%sh{...}` expansions were introduced
+  in [25.07](https://helix-editor.com/news/release-25-07-highlights/) and these
+  bindings do not work without them. Check with `hx --version`.
+- `tmux`, for the picker popup. Without it the direct lookup still works, but
+  anything that would fall back to the picker quietly does nothing.
+- `fzf`, for the picker itself.
+- `godocs` on the `PATH` **Helix itself sees** — see troubleshooting below.
+
+**Configuration**
+
+Add this to `~/.config/helix/config.toml`:
 
 ```toml
 [keys.normal."+"]
 # +d — search in a popup; whatever you pick opens as a Markdown buffer
 d = ":open %sh{godocs buffer --fallback \"%{buffer_name}\" --pick}"
-# +D — look up the word under the cursor, picker if it does not resolve
+# +D — look up the word under the cursor: straight to the docs if it resolves,
+#      otherwise the picker, seeded with it
 D = [
   "move_prev_long_word_start",
   "move_next_long_word_end",
@@ -99,16 +116,55 @@ D = [
 ]
 
 [keys.select."+"]
+# +d — look up the current selection
 d = ":open %sh{godocs buffer --fallback \"%{buffer_name}\" \"%{selection}\"}"
 ```
 
-`%sh{...}` is synchronous — it blocks until the popup closes, then hands the
-path to `:open`. `:sh` is asynchronous and would race. `--fallback` re-opens the
-buffer you are already on when the picker is cancelled, so `:open` is never
-handed an empty path.
+`+` is not a Helix default — these lines create it as a new prefix key. If you
+would rather hang them off the space menu, use `[keys.normal.space.d]` and so
+on; just avoid keys Helix already uses (`space d` is the diagnostics picker).
 
-Reading docs in a real buffer beats a pager: search, yank and buffer history
-all behave normally.
+**Why it is written this way**
+
+`%sh{...}` runs **synchronously**: it blocks until the popup closes, then hands
+the resulting path to `:open`. The asynchronous `:sh` would race, opening the
+file before it had been written.
+
+`--fallback "%{buffer_name}"` re-opens the buffer you are already on if you
+cancel the picker. Without it, `:open` is handed an empty path and complains.
+
+The long-word motions on `+D` deliberately grab the whole token —
+`http.Client.Do(req)` — and `godocs` trims the call syntax off before resolving.
+A sloppy grab is not a dead end: it just becomes the picker's starting query.
+
+**Troubleshooting**
+
+*Nothing happens, or `'open': path must be a regular file`* — check that Helix
+can see the binary. `%sh{}` runs through `sh -c` with Helix's own environment,
+which is not your interactive shell's. Test it from inside Helix:
+
+```
+:echo %sh{command -v godocs}
+```
+
+Empty means `godocs` is not on that `PATH`. Either launch Helix from a shell
+that has it, or spell out the path in the bindings — `%sh{...}` runs through a
+shell, so `~/.local/bin/godocs buffer ...` and `$HOME/...` both expand.
+
+*The popup never appears, and the statusline says `no current client`* — a
+tmux quirk rather than a godocs one, and `godocs popup` already handles it: an
+editor's `:sh` runs detached from any tmux client, so `display-popup` has no
+client to draw on unless it is given a target pane. If you are wrapping godocs
+in your own script, pass `-t "$TMUX_PANE"`.
+
+*Isolating the problem* — run the same command from a shell first:
+
+```sh
+godocs buffer http.Client.Do    # should print a path to a .md file
+```
+
+If that works but the keybinding does not, the problem is the binding or the
+environment, not godocs.
 
 ## Raycast
 
