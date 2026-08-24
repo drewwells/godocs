@@ -149,7 +149,7 @@ export default function SearchGoDocs(props: LaunchProps<{ arguments: { query?: s
   // empty result list.
   if (godocs.error) {
     return (
-      <List>
+      <List searchText={searchText} onSearchTextChange={setSearchText}>
         <List.EmptyView
           icon={Icon.Warning}
           title="godocs is not available"
@@ -171,7 +171,7 @@ export default function SearchGoDocs(props: LaunchProps<{ arguments: { query?: s
 
   if (godocs.path === undefined) {
     return (
-      <List isLoading>
+      <List isLoading searchText={searchText} onSearchTextChange={setSearchText}>
         <List.EmptyView icon={Icon.Download} title={godocs.status ?? "Preparing godocs"} />
       </List>
     );
