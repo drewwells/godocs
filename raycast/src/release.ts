@@ -10,11 +10,11 @@
  */
 export const RELEASE = {
   repo: "drewwells/godocs",
-  version: "v0.0.0",
+  version: "v0.1.0",
   /** SHA-256 of each gzipped binary, keyed by Node's process.arch. */
   checksums: {
-    arm64: "",
-    x64: "",
+    arm64: "756b07f7cc7a5790cf29111368bdc1485d318335b2dd53cca1af2cf515129e22",
+    x64: "b3b74a9cb72460d4ef27ec4a6b9e1742ffee019a58e29916f71f52d4014b5236",
   } as Record<string, string>,
 };
 
