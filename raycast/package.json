@@ -1,0 +1,85 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "go-docs",
+  "title": "Go Docs",
+  "description": "Offline fuzzy search over Go standard library and module documentation. Requires the godocs CLI.",
+  "icon": "command-icon.png",
+  "author": "drewwells",
+  "categories": ["Documentation", "Developer Tools"],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "search-go-docs",
+      "title": "Search Go Docs",
+      "subtitle": "Go",
+      "description": "Search Go packages, functions, types and methods, and read their docs.",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "query",
+          "type": "text",
+          "placeholder": "Marshal",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "godocsPath",
+      "type": "textfield",
+      "required": false,
+      "title": "godocs Path",
+      "description": "Path to the godocs binary. Leave blank to find it on PATH.",
+      "default": ""
+    },
+    {
+      "name": "projectDir",
+      "type": "directory",
+      "required": false,
+      "title": "Project Directory",
+      "description": "A Go module whose dependencies should be searched alongside the standard library. Run `godocs deps` in it once to build that index."
+    },
+    {
+      "name": "primaryAction",
+      "type": "dropdown",
+      "required": false,
+      "title": "Enter Key",
+      "description": "What pressing Enter on a result does.",
+      "default": "pkgsite",
+      "data": [
+        { "title": "Open on pkg.go.dev", "value": "pkgsite" },
+        { "title": "Show Full Documentation", "value": "detail" },
+        { "title": "Copy Import Path", "value": "copy" }
+      ]
+    },
+    {
+      "name": "showDetail",
+      "type": "checkbox",
+      "required": false,
+      "title": "Preview",
+      "description": "Render the selected symbol's documentation in a pane next to the results.",
+      "label": "Show documentation alongside results",
+      "default": true
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.103.2",
+    "@raycast/utils": "^2.2.1"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.0.4",
+    "@types/node": "22.13.10",
+    "@types/react": "19.0.10",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}
