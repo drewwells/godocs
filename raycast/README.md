@@ -3,6 +3,10 @@
 Offline fuzzy search over the Go standard library — and, optionally, a
 project's dependencies — with the documentation rendered inline.
 
+![The Go Docs command in Raycast. A search for "sum256" lists sha256.Sum256,
+sha3.Sum256, sha3.SumSHAKE256 and sha512.Sum512_256; the detail pane shows the
+signature, synopsis and import path for the selected sha256.Sum256.](../raycast.png)
+
 This is a front end for the `godocs` CLI in the repository root; the extension
 shells out to it for both search and rendering, so Raycast and the terminal
 picker always return the same results in the same order.

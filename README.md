@@ -11,6 +11,14 @@ can type `marshal` and get `json.Marshal`, or `wtgrp` and get
 
 Nothing talks to the network unless you ask it to open a browser.
 
+![The godocs picker open over Helix in a tmux popup. The query "cond" has
+matched sync.Cond and its methods, each row showing a signature and the first
+line of its documentation; the pane below previews the full docs for the
+selected sync.Cond.](helix-usage.png)
+
+*The picker, here over Helix. Results rank as you type and the pane below
+previews the selected symbol; `enter` opens it as a Markdown buffer.*
+
 ## Install
 
 ```sh
@@ -100,7 +108,8 @@ with that text, rather than rendering a list of near misses you cannot act on.
 
 **Configuration**
 
-Add this to `~/.config/helix/config.toml`:
+The picker at the top of this README is `+d` in action. Add this to
+`~/.config/helix/config.toml`:
 
 ```toml
 [keys.normal."+"]
@@ -170,6 +179,11 @@ environment, not godocs.
 
 `raycast/` is a Raycast extension that drives the same binary, so it returns the
 same results in the same order.
+
+![The Go Docs command in Raycast. A search for "sum256" lists sha256.Sum256,
+sha3.Sum256, sha3.SumSHAKE256 and sha512.Sum512_256; the detail pane shows the
+signature, synopsis and import path for the selected sha256.Sum256, with "Open
+on Pkg.go.dev" bound to enter.](raycast.png)
 
 ```sh
 cd raycast
